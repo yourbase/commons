@@ -17,4 +17,4 @@ ci:
   builds:
     - name: test
       build_target: default
-      when: branch is 'master' OR action is 'pull_request'
+      when: branch is 'main' OR action is 'pull_request'
