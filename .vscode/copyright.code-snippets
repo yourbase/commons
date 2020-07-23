@@ -1,0 +1,10 @@
+{
+	"Copyright": {
+		"prefix": "copyright",
+		"body": [
+			"$LINE_COMMENT Copyright $CURRENT_YEAR YourBase Inc.",
+			"$LINE_COMMENT SPDX-License-Identifier: BSD-3-Clause"
+		],
+		"description": "BSD license header"
+	}
+}

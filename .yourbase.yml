@@ -1,0 +1,20 @@
+# Copyright 2020 YourBase Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+dependencies:
+  build:
+    - go:1.14.6
+  runtime:
+    - go:1.14.6
+
+build_targets:
+  - name: default
+    commands:
+      - go mod download
+      - go test -race ./...
+
+ci:
+  builds:
+    - name: test
+      build_target: default
+      when: branch is 'master' OR action is 'pull_request'
