@@ -12,79 +12,97 @@ import (
 func TestForce(t *testing.T) {
 	tests := []struct {
 		name         string
-		host         string
+		forceHost    string
+		method       string
 		proto        string
 		url          string
-		wantRedirect bool
+		wantCode     int
 		wantLocation string
 	}{
 		{
-			name:         "ForwardedHTTP",
-			host:         "example.com",
+			name:         "ForwardedHTTP/Get",
+			forceHost:    "example.com",
+			method:       http.MethodGet,
 			proto:        "http",
 			url:          "http://example.com/foo",
-			wantRedirect: true,
+			wantCode:     http.StatusMovedPermanently,
 			wantLocation: "https://example.com/foo",
+		},
+		{
+			name:         "ForwardedHTTP/Head",
+			forceHost:    "example.com",
+			method:       http.MethodHead,
+			proto:        "http",
+			url:          "http://example.com/foo",
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "https://example.com/foo",
+		},
+		{
+			name:      "ForwardedHTTP/Post",
+			forceHost: "example.com",
+			method:    http.MethodPost,
+			proto:     "http",
+			url:       "http://example.com/foo",
+			wantCode:  http.StatusGone,
 		},
 		{
 			name:         "HostSpoofHTTP",
-			host:         "example.com",
+			forceHost:    "example.com",
+			method:       http.MethodGet,
 			proto:        "http",
 			url:          "http://hacker.example.com/foo",
-			wantRedirect: true,
+			wantCode:     http.StatusMovedPermanently,
 			wantLocation: "https://example.com/foo",
 		},
 		{
-			name:         "ForwardedHTTPS",
-			host:         "example.com",
-			proto:        "https",
-			url:          "http://example.com/foo",
-			wantRedirect: false,
+			name:      "ForwardedHTTPS",
+			forceHost: "example.com",
+			method:    http.MethodGet,
+			proto:     "https",
+			url:       "http://example.com/foo",
+			wantCode:  http.StatusOK,
 		},
 		{
-			name:         "Localhost",
-			host:         "example.com",
-			url:          "http://localhost:8080/foo",
-			wantRedirect: false,
+			name:      "Localhost",
+			forceHost: "example.com",
+			method:    http.MethodGet,
+			url:       "http://localhost:8080/foo",
+			wantCode:  http.StatusOK,
 		},
 		{
 			name:         "BogusProtocol",
-			host:         "example.com",
+			forceHost:    "example.com",
+			method:       http.MethodGet,
 			proto:        "bogus",
 			url:          "http://example.com/foo",
-			wantRedirect: true,
+			wantCode:     http.StatusMovedPermanently,
 			wantLocation: "https://example.com/foo",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var handler mockHandler
-			req := httptest.NewRequest(http.MethodGet, test.url, nil)
+			req := httptest.NewRequest(test.method, test.url, nil)
 			if test.proto != "" {
 				req.Header.Set("X-Forwarded-Proto", test.proto)
 			}
 
 			rec := new(httptest.ResponseRecorder)
-			Force(test.host, &handler).ServeHTTP(rec, req)
+			Force(test.forceHost, &handler).ServeHTTP(rec, req)
 			resp := rec.Result()
 
-			if test.wantRedirect {
-				if got, want := resp.StatusCode, http.StatusPermanentRedirect; got != want {
-					t.Errorf("status = %d (%s); want %d", got, http.StatusText(got), want)
-				}
-				if got, want := resp.Header.Get("Location"), test.wantLocation; got != want {
-					t.Errorf("Location = %q; want %q", got, want)
-				}
-				if handler.called {
+			if got, want := resp.StatusCode, test.wantCode; got != want {
+				t.Errorf("status = %d (%s); want %d", got, http.StatusText(got), want)
+			}
+			if got, want := handler.called, test.wantCode == http.StatusOK; got != want {
+				if got {
 					t.Error("Handler called")
-				}
-			} else {
-				if got, want := resp.StatusCode, http.StatusOK; got != want {
-					t.Errorf("status = %d (%s); want %d", got, http.StatusText(got), want)
-				}
-				if !handler.called {
+				} else {
 					t.Error("Handler not called")
 				}
+			}
+			if got, want := resp.Header.Get("Location"), test.wantLocation; got != want {
+				t.Errorf("Location = %q; want %q", got, want)
 			}
 		})
 	}

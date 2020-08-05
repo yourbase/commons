@@ -32,12 +32,18 @@ func Force(host string, handler http.Handler) http.Handler {
 
 func (m middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "https" && proto != "" {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			// Methods other than GET are more likely to contain sensitive information.
+			// Clients that are improperly using HTTP should fail loudly rather than
+			// be redirected because the first request leaks information.
+			http.Error(w, "Resource requested over HTTP instead of HTTPS", http.StatusGone)
+			return
+		}
 		u := *r.URL
 		u.Scheme = "https"
 		u.Host = m.host
-		// "Permanent Redirect" instructs the client to retry with the same method.
-		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/308
-		http.Redirect(w, r, u.String(), http.StatusPermanentRedirect)
+		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/301
+		http.Redirect(w, r, u.String(), http.StatusMovedPermanently)
 		return
 	}
 	m.wrap.ServeHTTP(w, r)
