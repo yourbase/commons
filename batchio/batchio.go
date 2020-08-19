@@ -33,10 +33,13 @@ type Reader struct {
 // It must be safe to call r.Close concurrently with r.Read.
 func NewReader(r io.ReadCloser, size int, tafb time.Duration) *Reader {
 	if r == nil {
-		panic("newChunker(nil, ...)")
+		panic("batchio.NewReader(nil, ...)")
 	}
 	if size <= 0 {
-		panic("newChunker(..., <non-positive size>)")
+		panic("batchio.NewReader(..., <non-positive size>, ...)")
+	}
+	if tafb < 0 {
+		panic("batchio.NewReader(..., <negative time-after-first-byte>)")
 	}
 	return &Reader{
 		r:    r,
