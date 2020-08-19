@@ -1,7 +1,7 @@
 // Copyright 2020 YourBase Inc.
 // SPDX-License-Identifier: BSD-3-Clause
 
-package batcher
+package batchio
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func TestBatcher(t *testing.T) {
+func TestReader(t *testing.T) {
 	tests := []struct {
 		name  string
 		size  int
@@ -91,7 +91,7 @@ func TestBatcher(t *testing.T) {
 					cancel()
 				},
 			}
-			b := New(r, test.size, 10*time.Millisecond)
+			b := NewReader(r, test.size, 10*time.Millisecond)
 			var got []string
 			for {
 				batch, err := b.Next(ctx)
@@ -152,7 +152,7 @@ func TestBatcher(t *testing.T) {
 			},
 			waits: make(chan struct{}),
 		}
-		b := New(r, size, 30*time.Second)
+		b := NewReader(r, size, 30*time.Second)
 		buf := new(strings.Builder)
 		batchCount := 0
 		for {
@@ -189,7 +189,7 @@ func TestBatcher(t *testing.T) {
 	})
 
 	t.Run("NoProgress", func(t *testing.T) {
-		b := New(noProgressReader{}, 64, 30*time.Second)
+		b := NewReader(noProgressReader{}, 64, 30*time.Second)
 		batch, err := b.Next(ctx)
 		if len(batch) > 0 || !errors.Is(err, io.ErrNoProgress) {
 			t.Errorf("b.Next(ctx) = %q, %v; want \"\", %v", batch, err, io.ErrNoProgress)
