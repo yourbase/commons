@@ -98,6 +98,9 @@ func (r *Reader) Next(ctx context.Context) ([]byte, error) {
 			return r.buf[:r.nread:r.nread], nil
 		case <-ctx.Done():
 			r.pendingRead = true
+			if r.nread == 0 {
+				return nil, ctx.Err()
+			}
 			return r.buf[:r.nread:r.nread], nil
 		}
 	}
