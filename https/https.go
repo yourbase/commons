@@ -7,6 +7,8 @@ package https
 
 import (
 	"net/http"
+
+	"github.com/yourbase/commons/headers"
 )
 
 type middleware struct {
@@ -31,7 +33,7 @@ func Force(host string, handler http.Handler) http.Handler {
 }
 
 func (m middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "https" && proto != "" {
+	if proto := r.Header.Get(headers.XForwardedProto); proto != "https" && proto != "" {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			// Methods other than GET are more likely to contain sensitive information.
 			// Clients that are improperly using HTTP should fail loudly rather than
