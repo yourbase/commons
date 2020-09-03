@@ -37,6 +37,10 @@ const (
 	// Downloads
 	ContentDisposition = "Content-Disposition"
 
+	// Errors
+	Allow      = "Allow"
+	RetryAfter = "Retry-After"
+
 	// Proxies
 	XForwardedFor   = "X-Forwarded-For"
 	XForwardedHost  = "X-Forwarded-Host"
