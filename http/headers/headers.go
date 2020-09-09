@@ -55,3 +55,21 @@ const (
 	IfRange      = "If-Range"
 	ContentRange = "Content-Range"
 )
+
+// X-Content-Type-Options header and its value.
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options
+const (
+	XContentTypeOptions = "X-Content-Type-Options"
+	NoSniff             = "nosniff"
+)
+
+// Connection management headers.
+const (
+	Connection = "Connection"
+	KeepAlive  = "Keep-Alive"
+	Expect     = "Expect"
+
+	// ConnectionClose is the value for the Connection header to indicate the
+	// sender would like to close the connection.
+	ConnectionClose = "close"
+)
