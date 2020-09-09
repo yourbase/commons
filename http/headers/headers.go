@@ -67,6 +67,7 @@ const (
 const (
 	Connection = "Connection"
 	KeepAlive  = "Keep-Alive"
+	Expect     = "Expect"
 
 	// ConnectionClose is the value for the Connection header to indicate the
 	// sender would like to close the connection.

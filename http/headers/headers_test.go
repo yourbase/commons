@@ -26,6 +26,7 @@ func TestCanonical(t *testing.T) {
 		ContentRange,
 		ContentType,
 		ETag,
+		Expect,
 		Expires,
 		IfMatch,
 		IfModifiedSince,
