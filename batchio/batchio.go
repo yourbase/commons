@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -124,4 +125,151 @@ func (r *Reader) Finish() ([]byte, error) {
 	r.pendingRead = false
 	r.r = nil
 	return r.buf[r.nread : r.nread+n], err
+}
+
+// A Writer is a buffered io.Writer that writes batches to an underlying
+// io.Writer object. If an error occurs writing to a Writer, no more data will
+// be accepted and all subsequent writes, and Flush, will return the error.
+// After all data has been written, the client should call the Flush method to
+// guarantee all data has been forwarded to the underlying io.Writer object.
+type Writer struct {
+	w         io.Writer
+	tafb      time.Duration
+	timerDone chan struct{} // sent to when the AfterFunc has completed
+
+	mu        sync.Mutex
+	buf       []byte // a writer goroutine is running iff len(buf) > 0
+	err       error
+	flushChan chan struct{} // signal to the writer goroutine to start (has a buffer of 1)
+	timer     *time.Timer   // return value of AfterFunc that trigger a flush
+	writeDone chan struct{} // closed when the writer goroutine returns
+}
+
+// NewWriter returns a new Writer that writes batches to w. The batches will
+// be no larger than the given size and will wait at most tafb after the first
+// byte in a batch before writing the whole batch.
+func NewWriter(w io.Writer, size int, tafb time.Duration) *Writer {
+	if w == nil {
+		panic("batchio.NewWriter(nil, ...)")
+	}
+	if size <= 0 {
+		panic("batchio.NewWriter(..., <non-positive size>, ...)")
+	}
+	if tafb < 0 {
+		panic("batchio.NewWriter(..., <negative time-after-first-byte>)")
+	}
+	return &Writer{
+		w:         w,
+		buf:       make([]byte, 0, size),
+		tafb:      tafb,
+		timerDone: make(chan struct{}),
+	}
+}
+
+// Write writes the contents of p into the buffer. It returns the number of
+// bytes written. If n < len(p), it also returns an error explaining why the
+// write is short.
+func (w *Writer) Write(p []byte) (n int, err error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.err != nil {
+		return 0, w.err
+	}
+	if len(w.buf) > 0 {
+		// Goroutine has started, but is waiting for flush.
+		// Append data to buffer without exceeding capacity.
+		n = copy(w.buf[len(w.buf):cap(w.buf)], p)
+		w.buf = w.buf[:len(w.buf)+n]
+		p = p[n:]
+		if len(w.buf) < cap(w.buf) {
+			// Not enough data to trigger a flush.
+			return n, nil
+		}
+		w.flushLocked()
+		if w.err != nil {
+			return n, w.err
+		}
+	}
+	// No goroutine running. First, synchronously batch any data from the
+	// beginning of the current write until the remaining data is less than the
+	// buffer size.
+	for len(p) >= cap(w.buf) {
+		var nn int
+		nn, w.err = w.w.Write(p[:cap(w.buf)])
+		n += nn
+		if err != nil {
+			w.err = err
+			return n, w.err
+		}
+		p = p[nn:]
+	}
+	// Now the rest of the current write will fit inside the buffer.
+	w.buf = append(w.buf, p...)
+	n += len(p)
+	// If the buffer has data, then we need to kick off a goroutine to write it.
+	if len(w.buf) == 0 {
+		return n, nil
+	}
+	flushChan := make(chan struct{}, 1) // variable captured for AfterFunc
+	w.flushChan = flushChan
+	w.timer = time.AfterFunc(w.tafb, func() {
+		select {
+		case flushChan <- struct{}{}:
+		default:
+			// Already signaled.
+		}
+	})
+	w.writeDone = make(chan struct{})
+	go w.backgroundWrite()
+	return n, nil
+}
+
+func (w *Writer) backgroundWrite() {
+	// Wait for first of:
+	// a) buffer is full
+	// b) timer has expired
+	<-w.flushChan
+
+	// Holding onto the lock while writing avoids having to communicate to the
+	// main goroutine how much of the buffer we wrote.
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, w.err = w.w.Write(w.buf)
+
+	// Reset for the next background write.
+	// We don't need to synchronize with the AfterFunc because it doesn't block.
+	w.buf = w.buf[:0]
+	w.flushChan = nil
+	w.timer.Stop()
+	w.timer = nil
+	close(w.writeDone)
+	w.writeDone = nil
+}
+
+// Flush writes any buffered data to the underlying io.Writer.
+func (w *Writer) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for len(w.buf) > 0 {
+		w.flushLocked()
+	}
+	return w.err
+}
+
+// flushLocked signals to the writer goroutine that it should proceed with the
+// write and waits for it to finish. The caller must be holding onto w.mu and
+// should always check w.err afterward.
+func (w *Writer) flushLocked() {
+	select {
+	case w.flushChan <- struct{}{}:
+	default:
+		// Already signaled.
+	}
+	done := w.writeDone
+	w.mu.Unlock()
+	<-done
+	w.mu.Lock()
 }

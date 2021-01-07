@@ -256,3 +256,160 @@ func (noProgressReader) Read(p []byte) (n int, err error) {
 func (noProgressReader) Close() error {
 	return nil
 }
+
+func TestWriter(t *testing.T) {
+	const tafb = 10 * time.Millisecond
+
+	t.Run("SingleBatch", func(t *testing.T) {
+		rec := new(batchRecorder)
+		w := NewWriter(rec, 64, tafb)
+		const want = "Hello, World!\n"
+		writeStrings(t, w, want)
+		if err := w.Flush(); err != nil {
+			t.Error("w.Flush():", err)
+		}
+		got := rec.get()
+		if diff := cmp.Diff([]string{want}, got); diff != "" {
+			t.Errorf("batches (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("ExactSizeOfBatch", func(t *testing.T) {
+		rec := new(batchRecorder)
+		const want = "Hello, World!\n"
+		w := NewWriter(rec, len(want), tafb)
+		writeStrings(t, w, want)
+		if err := w.Flush(); err != nil {
+			t.Error("w.Flush():", err)
+		}
+		got := rec.get()
+		if diff := cmp.Diff([]string{want}, got); diff != "" {
+			t.Errorf("batches (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("MultipleWritesLessThanBatchSize", func(t *testing.T) {
+		rec := new(batchRecorder)
+		const batchSize = 64
+		w := NewWriter(rec, batchSize, tafb)
+		const want = "Hello, World!\n"
+		writeStrings(t, w, "Hello", ", ", "World!\n")
+		if err := w.Flush(); err != nil {
+			t.Error("w.Flush():", err)
+		}
+		// We can't guarantee the exact batching because it's dependent on timing.
+		if got := rec.get(); !isBatchingValid(got, want, batchSize) {
+			t.Errorf("bad batching for %q, batch size = %d: %q", want, batchSize, got)
+		}
+	})
+
+	t.Run("SecondWriteLongerThanBatchSize", func(t *testing.T) {
+		rec := new(batchRecorder)
+		const batchSize = 5
+		w := NewWriter(rec, batchSize, tafb)
+		const want = "Hello, World!\n"
+		writeStrings(t, w, "He", "llo, World!\n")
+		if err := w.Flush(); err != nil {
+			t.Error("w.Flush():", err)
+		}
+		// We can't guarantee the exact batching because it's dependent on timing.
+		if got := rec.get(); !isBatchingValid(got, want, batchSize) {
+			t.Errorf("bad batching for %q, batch size = %d: %q", want, batchSize, got)
+		}
+	})
+
+	t.Run("MultipleBatches", func(t *testing.T) {
+		rec := new(batchRecorder)
+		w := NewWriter(rec, 5, tafb)
+		writeStrings(t, w, "Hello, World!\n")
+		if err := w.Flush(); err != nil {
+			t.Error("w.Flush():", err)
+		}
+		got := rec.get()
+		if diff := cmp.Diff([]string{"Hello", ", Wor", "ld!\n"}, got); diff != "" {
+			t.Errorf("batches (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("Timeout", func(t *testing.T) {
+		rec := new(batchRecorder)
+		w := NewWriter(rec, 64, tafb)
+		const want = "Hello, World!\n"
+		writeStrings(t, w, want)
+		if t.Failed() {
+			t.Fatal("Test already failed: skipping wait for results.")
+		}
+		rec.waitForBytes(1)
+		got := rec.get()
+		if diff := cmp.Diff([]string{want}, got); diff != "" {
+			t.Errorf("batches (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func writeStrings(t *testing.T, w io.Writer, s ...string) {
+	for _, data := range s {
+		n, err := io.WriteString(w, data)
+		if n != len(data) || err != nil {
+			t.Errorf("w.Write([]byte(%q)) = %d, %v; want %d, <nil>", data, n, err, len(data))
+		}
+	}
+}
+
+func isBatchingValid(batches []string, want string, batchSize int) bool {
+	for _, batch := range batches {
+		if len(batch) == 0 || len(batch) > batchSize {
+			return false
+		}
+	}
+	return strings.Join(batches, "") == want
+}
+
+// batchRecorder is an io.Writer that saves the individual Write calls it receives.
+// It is safe to use concurrently.
+type batchRecorder struct {
+	mu      sync.Mutex
+	cond    chan struct{}
+	batches []string
+}
+
+func (rec *batchRecorder) Write(p []byte) (int, error) {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	rec.batches = append(rec.batches, string(p))
+	if len(p) > 0 && rec.cond != nil {
+		close(rec.cond)
+		rec.cond = nil
+	}
+	return len(p), nil
+}
+
+func (rec *batchRecorder) get() []string {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return append([]string(nil), rec.batches...)
+}
+
+// waitForBytes waits until the given number of bytes have been written to
+// the writer.
+func (rec *batchRecorder) waitForBytes(n int) {
+	for {
+		rec.mu.Lock()
+		current := 0
+		for _, b := range rec.batches {
+			current += len(b)
+		}
+		if current >= n {
+			rec.mu.Unlock()
+			return
+		}
+
+		// Not enough bytes. Wait for the channel to notify.
+		if rec.cond == nil {
+			rec.cond = make(chan struct{})
+		}
+		c := rec.cond
+		rec.mu.Unlock()
+		<-c
+	}
+}
