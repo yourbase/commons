@@ -28,24 +28,24 @@ type Reader struct {
 }
 
 // NewReader returns a new Reader that reads batches from r. The batches will
-// be no larger than the given size and will wait at most tafb after the first
-// byte before returning.
+// be no larger than the given size and will wait at most the given time after
+// the first byte before returning.
 //
 // It must be safe to call r.Close concurrently with r.Read.
-func NewReader(r io.ReadCloser, size int, tafb time.Duration) *Reader {
+func NewReader(r io.ReadCloser, size int, timeAfterFirstByte time.Duration) *Reader {
 	if r == nil {
 		panic("batchio.NewReader(nil, ...)")
 	}
 	if size <= 0 {
 		panic("batchio.NewReader(..., <non-positive size>, ...)")
 	}
-	if tafb < 0 {
+	if timeAfterFirstByte < 0 {
 		panic("batchio.NewReader(..., <negative time-after-first-byte>)")
 	}
 	return &Reader{
 		r:    r,
 		buf:  make([]byte, size),
-		tafb: tafb,
+		tafb: timeAfterFirstByte,
 		read: make(chan int, 1),
 	}
 }
@@ -146,22 +146,22 @@ type Writer struct {
 }
 
 // NewWriter returns a new Writer that writes batches to w. The batches will
-// be no larger than the given size and will wait at most tafb after the first
-// byte in a batch before writing the whole batch.
-func NewWriter(w io.Writer, size int, tafb time.Duration) *Writer {
+// be no larger than the given size and will wait at most the given time after
+// the first byte in a batch before writing the whole batch.
+func NewWriter(w io.Writer, size int, timeAfterFirstByte time.Duration) *Writer {
 	if w == nil {
 		panic("batchio.NewWriter(nil, ...)")
 	}
 	if size <= 0 {
 		panic("batchio.NewWriter(..., <non-positive size>, ...)")
 	}
-	if tafb < 0 {
+	if timeAfterFirstByte < 0 {
 		panic("batchio.NewWriter(..., <negative time-after-first-byte>)")
 	}
 	return &Writer{
 		w:         w,
 		buf:       make([]byte, 0, size),
-		tafb:      tafb,
+		tafb:      timeAfterFirstByte,
 		timerDone: make(chan struct{}),
 	}
 }
