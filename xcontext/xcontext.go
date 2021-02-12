@@ -19,6 +19,9 @@ import (
 
 // IgnoreDeadline returns a context that keeps all the values of its parent context
 // but detaches from the cancellation and error handling.
+//
+// KeepAlive should be preferred over IgnoreDeadline in most cases to prevent work from
+// preventing shutdown.
 func IgnoreDeadline(ctx context.Context) context.Context { return noDeadlineContext{ctx} }
 
 type noDeadlineContext struct{ parent context.Context }
